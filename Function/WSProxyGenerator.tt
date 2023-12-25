@@ -1,0 +1,92 @@
+
+<#@ template hostspecific="true" language="C#" #>
+<#@ assembly name="System.ServiceModel" #>
+<#@ assembly name="System.Core" #>
+<#@ import namespace="System" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Reflection" #>
+<#@ import namespace="System.ServiceModel" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Linq" #>
+<#@ output extension=".cs" #>
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using System.ServiceModel;
+using Microsoft.Azure.Functions.Extensions.Workflows;
+using Microsoft.Azure.WebJobs;
+using Microsoft.Extensions.Logging;
+using ServiceReference1;
+namespace MyNamespace
+{
+<#
+
+    string dllPath = "C:\\Users\\mobarqaw\\source\\repos\\laworkspace20231218\\la\\Function\\bin\\Debug\\net472\\fa.dll";
+    StringBuilder generatedCode = new StringBuilder();
+    String interfaceName = "";
+
+    if (File.Exists(dllPath)) {
+        Assembly currentAssembly = Assembly.LoadFrom(dllPath);
+        Type[] types = currentAssembly.GetTypes();
+        foreach (Type type in types) {
+            if (type.IsInterface && type.GetCustomAttributes(typeof(System.ServiceModel.ServiceContractAttribute), false).Length > 0) {
+               interfaceName=type.Name;
+               GenerateProxyClass(type);
+            }
+        }
+    } else {
+#>
+
+// DLL not found, generating empty class
+public class EmptyProxyClass {}
+
+<#
+    }
+string GetFormattedTypeName(Type type) {
+        if (!type.IsGenericType)
+            return type.Name;
+
+        string genericTypeName = type.GetGenericTypeDefinition().Name;
+        // Remove the generic parameter count (`1, `2 etc) from the type name
+        genericTypeName = genericTypeName.Substring(0, genericTypeName.IndexOf('`'));
+        string genericArgs = string.Join(", ", type.GetGenericArguments().Select(t => t.Name));
+        return genericTypeName + "<" + genericArgs + ">";
+    }
+
+    void GenerateProxyClass(Type interfaceType) {
+
+        
+        foreach (MethodInfo method in interfaceType.GetMethods())
+        {
+          var parameters = method.GetParameters();
+          var methodName=method.Name;
+          string parameterList = String.Join(", ", parameters.Select(p => p.ParameterType.Name + " " + p.Name));
+          string parameterListNames = String.Join(", ", parameters.Select(p =>   p.Name));
+          string returnType = GetFormattedTypeName(method.ReturnType);
+          string className = method.Name + "LogicAppProxy";
+          generatedCode.AppendLine("public class " + className );
+   #>   
+
+    public class <#=className#>
+    {
+        private readonly ILogger<<#=className#>> logger;
+        public <#=className#>(ILoggerFactory loggerFactory)
+            {
+                logger = loggerFactory.CreateLogger<<#=className#>>();
+            }
+        [FunctionName("<#=className#>")]
+        public <#=returnType#> Run([WorkflowActionTrigger] string endpointAddress, <#=parameterList#>)
+            {
+                var _binding = new BasicHttpsBinding();
+                var _address = new EndpointAddress(endpointAddress);
+                using (var proxy = new <#=interfaceName#>Client(_binding, _address))
+                  {
+                      var result =  proxy.<#=methodName#>(<#=parameterListNames#>);
+                      return result;
+                  }
+            }
+    }
+<#
+    }}
+    #>  
+}
